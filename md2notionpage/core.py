@@ -264,8 +264,8 @@ def parse_markdown_to_notion_blocks(markdown):
     code_block_pattern = re.compile(r'```(\w+?)\n(.+?)```', re.DOTALL)
     # katex
     latex_block_pattern = re.compile(r'\$\$(.+?)\$\$', re.DOTALL)
-    numbered_list_pattern_nested = r'^( *)(\d+)\. '
-    unordered_list_pattern_nested = r'^( *)(\-) '
+    numbered_list_pattern_nested = r'^ *(\d+)\. '
+    unordered_list_pattern_nested = r'^ *(\-) '
     heading_pattern = r'^(#+) '
 
     #indented_code_pattern = re.compile(r'^ {4}(.+)$', re.MULTILINE)
@@ -339,16 +339,19 @@ def parse_markdown_to_notion_blocks(markdown):
 
         list_match = re.match(numbered_list_pattern_nested, line)
         if list_match:
-            indent = len(list_match.group(1))
-            line = line[len(list_match.group(0)):]
+            # 获取缩进量（修改后的匹配组）
+            indent = len(line) - len(line.lstrip(' '))
+            # 获取列表内容（去除前面的空格和列表标记）
+            line = line.strip()
+            line = re.sub(numbered_list_pattern_nested, '', line)
 
-            # 处理缩进变化
-            while indent < current_indent:
+            # 处理缩进变化（新增对0缩进的处理）
+            while indent < current_indent and current_indent > 0:
                 stack.pop()
                 list_types.pop()
                 current_indent -= 1
 
-            # 创建新列表项
+            # 创建新列表项（保持原有逻辑）
             item = {
                 "object": "block",
                 "type": "numbered_list_item",
@@ -358,38 +361,47 @@ def parse_markdown_to_notion_blocks(markdown):
             }
 
             if indent > current_indent:
-                # 处理嵌套
-                parent_type = list_types[-1] if list_types else None
-                if parent_type == 'bulleted':
-                    parent_key = 'bulleted_list_item'
-                else:
-                    parent_key = 'numbered_list_item'
+                # 处理嵌套前先检查父级是否为列表项
+                if stack and isinstance(stack[-1][-1], dict):
+                    parent_block = stack[-1][-1]
+                    # 自动检测父级类型
+                    if 'numbered_list_item' in parent_block:
+                        parent_key = 'numbered_list_item'
+                    elif 'bulleted_list_item' in parent_block:
+                        parent_key = 'bulleted_list_item'
+                    else:  # 如果父级不是列表项，重置缩进状态
+                        current_indent = 0
+                        stack = [blocks]
+                        list_types = []
+                        parent_key = None
                 
-                if 'children' not in stack[-1][-1][parent_key]:
-                    stack[-1][-1][parent_key]['children'] = []
-                stack[-1][-1][parent_key]['children'].append(item)
-                stack.append(stack[-1][-1][parent_key]['children'])
-                list_types.append('numbered')
-                current_indent += 1
-            else:
-                stack[-1].append(item)
-                if not list_types or list_types[-1] != 'numbered':
+                if parent_key:  # 只有确认是有效列表父级时才创建嵌套
+                    if 'children' not in stack[-1][-1][parent_key]:
+                        stack[-1][-1][parent_key]['children'] = []
+                    stack[-1][-1][parent_key]['children'].append(item)
+                    stack.append(stack[-1][-1][parent_key]['children'])
+                    list_types.append('numbered')
+                    current_indent += 1
+                else:  # 非列表父级时作为新列表处理
+                    stack[-1].append(item)
                     list_types.append('numbered')
 
             continue
 
         list_match = re.match(unordered_list_pattern_nested, line)
         if list_match:
-            indent = len(list_match.group(1))
-            line = line[len(list_match.group(0)):]
+            # 同样的修改应用于无序列表
+            indent = len(line) - len(line.lstrip(' '))
+            line = line.strip()
+            line = re.sub(unordered_list_pattern_nested, '', line)
 
-            # 处理缩进变化
-            while indent < current_indent:
+            # 处理缩进变化（新增对0缩进的处理）
+            while indent < current_indent and current_indent > 0:
                 stack.pop()
                 list_types.pop()
                 current_indent -= 1
 
-            # 创建新列表项
+            # 创建新列表项（保持原有逻辑）
             item = {
                 "object": "block",
                 "type": "bulleted_list_item",
@@ -399,22 +411,29 @@ def parse_markdown_to_notion_blocks(markdown):
             }
 
             if indent > current_indent:
-                # 处理嵌套
-                parent_type = list_types[-1] if list_types else None
-                if parent_type == 'numbered':
-                    parent_key = 'numbered_list_item'
-                else:
-                    parent_key = 'bulleted_list_item'
+                # 处理嵌套前先检查父级是否为列表项
+                if stack and isinstance(stack[-1][-1], dict):
+                    parent_block = stack[-1][-1]
+                    # 自动检测父级类型
+                    if 'numbered_list_item' in parent_block:
+                        parent_key = 'numbered_list_item'
+                    elif 'bulleted_list_item' in parent_block:
+                        parent_key = 'bulleted_list_item'
+                    else:  # 如果父级不是列表项，重置缩进状态
+                        current_indent = 0
+                        stack = [blocks]
+                        list_types = []
+                        parent_key = None
                 
-                if 'children' not in stack[-1][-1][parent_key]:
-                    stack[-1][-1][parent_key]['children'] = []
-                stack[-1][-1][parent_key]['children'].append(item)
-                stack.append(stack[-1][-1][parent_key]['children'])
-                list_types.append('bulleted')
-                current_indent += 1
-            else:
-                stack[-1].append(item)
-                if not list_types or list_types[-1] != 'bulleted':
+                if parent_key:  # 只有确认是有效列表父级时才创建嵌套
+                    if 'children' not in stack[-1][-1][parent_key]:
+                        stack[-1][-1][parent_key]['children'] = []
+                    stack[-1][-1][parent_key]['children'].append(item)
+                    stack.append(stack[-1][-1][parent_key]['children'])
+                    list_types.append('bulleted')
+                    current_indent += 1
+                else:  # 非列表父级时作为新列表处理
+                    stack[-1].append(item)
                     list_types.append('bulleted')
 
             continue
