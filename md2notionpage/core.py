@@ -303,6 +303,7 @@ def parse_markdown_to_notion_blocks(markdown):
 
     current_indent = 0
     stack = [blocks]
+    list_types = []  # 新增列表类型栈
 
     indented_code_accumulator = []
     for line in lines:
@@ -341,6 +342,13 @@ def parse_markdown_to_notion_blocks(markdown):
             indent = len(list_match.group(1))
             line = line[len(list_match.group(0)):]
 
+            # 处理缩进变化
+            while indent < current_indent:
+                stack.pop()
+                list_types.pop()
+                current_indent -= 1
+
+            # 创建新列表项
             item = {
                 "object": "block",
                 "type": "numbered_list_item",
@@ -349,21 +357,24 @@ def parse_markdown_to_notion_blocks(markdown):
                 }
             }
 
-            while indent < current_indent:
-                # If the indentation is less than the current level, go back one level in the stack
-                stack.pop()
-                current_indent -= 1
-
-            if indent == current_indent:
-                # Same level of indentation, add to the current level of the stack
-                stack[-1].append(item)
-            else: # indent > current_indent
-                # Nested item, add it as a child of the previous item
-                if 'children' not in stack[-1][-1]['numbered_list_item']:
-                    stack[-1][-1]['numbered_list_item']['children'] = []
-                stack[-1][-1]['numbered_list_item']['children'].append(item)
-                stack.append(stack[-1][-1]['numbered_list_item']['children']) # Add a new level to the stack
+            if indent > current_indent:
+                # 处理嵌套
+                parent_type = list_types[-1] if list_types else None
+                if parent_type == 'bulleted':
+                    parent_key = 'bulleted_list_item'
+                else:
+                    parent_key = 'numbered_list_item'
+                
+                if 'children' not in stack[-1][-1][parent_key]:
+                    stack[-1][-1][parent_key]['children'] = []
+                stack[-1][-1][parent_key]['children'].append(item)
+                stack.append(stack[-1][-1][parent_key]['children'])
+                list_types.append('numbered')
                 current_indent += 1
+            else:
+                stack[-1].append(item)
+                if not list_types or list_types[-1] != 'numbered':
+                    list_types.append('numbered')
 
             continue
 
@@ -372,6 +383,13 @@ def parse_markdown_to_notion_blocks(markdown):
             indent = len(list_match.group(1))
             line = line[len(list_match.group(0)):]
 
+            # 处理缩进变化
+            while indent < current_indent:
+                stack.pop()
+                list_types.pop()
+                current_indent -= 1
+
+            # 创建新列表项
             item = {
                 "object": "block",
                 "type": "bulleted_list_item",
@@ -380,21 +398,24 @@ def parse_markdown_to_notion_blocks(markdown):
                 }
             }
 
-            while indent < current_indent:
-                # If the indentation is less than the current level, go back one level in the stack
-                stack.pop()
-                current_indent -= 1
-
-            if indent == current_indent:
-                # Same level of indentation, add to the current level of the stack
-                stack[-1].append(item)
-            else: # indent > current_indent
-                # Nested item, add it as a child of the previous item
-                if 'children' not in stack[-1][-1]['bulleted_list_item']:
-                    stack[-1][-1]['bulleted_list_item']['children'] = []
-                stack[-1][-1]['bulleted_list_item']['children'].append(item)
-                stack.append(stack[-1][-1]['bulleted_list_item']['children']) # Add a new level to the stack
+            if indent > current_indent:
+                # 处理嵌套
+                parent_type = list_types[-1] if list_types else None
+                if parent_type == 'numbered':
+                    parent_key = 'numbered_list_item'
+                else:
+                    parent_key = 'bulleted_list_item'
+                
+                if 'children' not in stack[-1][-1][parent_key]:
+                    stack[-1][-1][parent_key]['children'] = []
+                stack[-1][-1][parent_key]['children'].append(item)
+                stack.append(stack[-1][-1][parent_key]['children'])
+                list_types.append('bulleted')
                 current_indent += 1
+            else:
+                stack[-1].append(item)
+                if not list_types or list_types[-1] != 'bulleted':
+                    list_types.append('bulleted')
 
             continue
 
